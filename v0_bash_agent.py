@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-v0_bash_agent.py - Mini Claude Code: Bash is All You Need (~50 lines core)
+v0_bash_agent.py - Mini LiteLLM Code: Bash is All You Need (~50 lines core)
 
 Core Philosophy: "Bash is All You Need"
 ======================================
@@ -47,6 +47,7 @@ Usage:
     python v0_bash_agent.py "explore src/ and summarize"
 """
 
+import llm_helper
 import litellm
 from dotenv import load_dotenv
 import subprocess
@@ -54,18 +55,7 @@ import sys
 import os
 
 load_dotenv(override=True)
-
-# Configure litellm (uses standard env vars like OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
-LLM_PROVIDER = os.getenv("LLM_PROVIDER")
-
-MODEL_ID = os.getenv("MODEL_ID", "gpt-4o-mini")
-if LLM_PROVIDER == "openrouter":
-    MODEL = f"openrouter/{MODEL_ID}"
-else:
-    MODEL = MODEL_ID
-
-print(f"LLM Provider: {LLM_PROVIDER}")
-print(f"Using model: {MODEL}")
+MODEL = llm_helper.get_model()
 
 # The ONE tool that does everything (OpenAI function calling format for litellm)
 # Notice how the description teaches the model common patterns AND how to spawn subagents
