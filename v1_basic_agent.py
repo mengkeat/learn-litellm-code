@@ -52,13 +52,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-import llm_helper
 import litellm
 from dotenv import load_dotenv
 
 # litellm._turn_on_debug()
 load_dotenv(override=True)
-MODEL = llm_helper.get_model()
+MODEL = os.environ["MODEL_ID"]
 
 # =============================================================================
 # Configuration

@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 v0_bash_agent.py - Mini LiteLLM Code: Bash is All You Need (~50 lines core)
 
