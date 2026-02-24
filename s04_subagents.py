@@ -25,9 +25,12 @@ import json
 import os
 import subprocess
 
+import inspect
+
 import litellm
 from pathlib import Path
 from dotenv import load_dotenv
+from pydantic import create_model
 
 load_dotenv(override=True)
 
@@ -46,6 +49,7 @@ def safe_path(p: str) -> Path:
     return path
 
 def run_bash(command: str) -> str:
+    """Run a shell command."""
     dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
     if any(d in command for d in dangerous):
         return "Error: Dangerous command blocked"
@@ -57,7 +61,8 @@ def run_bash(command: str) -> str:
     except subprocess.TimeoutExpired:
         return "Error: Timeout (120s)"
 
-def run_read(path: str, limit: int = None) -> str:
+def run_read(path: str, limit: int | None = None) -> str:
+    """Read file contents."""
     try:
         lines = safe_path(path).read_text().splitlines()
         if limit and limit < len(lines):
@@ -67,6 +72,7 @@ def run_read(path: str, limit: int = None) -> str:
         return f"Error: {e}"
 
 def run_write(path: str, content: str) -> str:
+    """Write content to file."""
     try:
         fp = safe_path(path)
         fp.parent.mkdir(parents=True, exist_ok=True)
@@ -76,6 +82,7 @@ def run_write(path: str, content: str) -> str:
         return f"Error: {e}"
 
 def run_edit(path: str, old_text: str, new_text: str) -> str:
+    """Replace exact text in file."""
     try:
         fp = safe_path(path)
         content = fp.read_text()
@@ -99,20 +106,31 @@ def execute_tool(name: str, args: dict) -> str:
     return f"Unknown tool: {name}"
 
 
+# -- Reflect function signatures into OpenAI tool schemas --
+def fn_to_tool(fn, name: str = None) -> dict:
+    """Convert a function to an OpenAI tool definition via inspect + pydantic."""
+    sig = inspect.signature(fn)
+    fields = {}
+    for pname, param in sig.parameters.items():
+        ann = param.annotation if param.annotation != inspect.Parameter.empty else str
+        default = param.default if param.default != inspect.Parameter.empty else ...
+        fields[pname] = (ann, default)
+    schema = create_model(fn.__name__, **fields).model_json_schema()
+    return {"type": "function", "function": {
+        "name": name or fn.__name__,
+        "description": fn.__doc__ or "",
+        "parameters": schema,
+    }}
+
+def run_task(prompt: str, description: str = "") -> str:
+    """Spawn a subagent with fresh context. It shares the filesystem but not conversation history."""
+
 # Child gets all base tools except task (no recursive spawning)
 CHILD_TOOLS = [
-    {"type": "function", "function": {
-        "name": "bash", "description": "Run a shell command.",
-        "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
-    {"type": "function", "function": {
-        "name": "read_file", "description": "Read file contents.",
-        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["path"]}}},
-    {"type": "function", "function": {
-        "name": "write_file", "description": "Write content to file.",
-        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
-    {"type": "function", "function": {
-        "name": "edit_file", "description": "Replace exact text in file.",
-        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}}},
+    fn_to_tool(run_bash, "bash"),
+    fn_to_tool(run_read, "read_file"),
+    fn_to_tool(run_write, "write_file"),
+    fn_to_tool(run_edit, "edit_file"),
 ]
 
 
@@ -150,15 +168,7 @@ def run_subagent(prompt: str) -> str:
 
 
 # -- Parent tools: base tools + task dispatcher --
-PARENT_TOOLS = CHILD_TOOLS + [
-    {"type": "function", "function": {
-        "name": "task",
-        "description": "Spawn a subagent with fresh context. It shares the filesystem but not conversation history.",
-        "parameters": {"type": "object", "properties": {
-            "prompt": {"type": "string"},
-            "description": {"type": "string", "description": "Short description of the task"}},
-            "required": ["prompt"]}}},
-]
+PARENT_TOOLS = CHILD_TOOLS + [fn_to_tool(run_task, "task")]
 
 
 def agent_loop(messages: list):
